@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Netimizer OTP Support</title>
+<style>
+    body {
+        font-size: 1rem;
+        line-height: 1.6;
+        margin: 0;
+        padding: 1rem;
+        box-sizing: border-box;
+        font-family: Arial, sans-serif;
+        background-color: #f7f9fc;
+    }
+
+    @media (min-width: 700px) {
+        body {
+            max-width: 700px;
+            margin: auto;
+        }
+    }
+
+    h2 {
+        margin-top: 2rem;
+        border-bottom: 2px solid #ccc;
+        padding-bottom: 0.3rem;
+    }
+
+    label {
+        display: block;
+        margin-top: 1.5rem;
+        font-weight: bold;
+    }
+
+    input[type="text"] {
+        width: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        margin-top: 0.5rem;
+    }
+
+    pre {
+        background: #f0f0f0;
+        border: 1px solid #ddd;
+        padding: 1rem;
+        overflow-x: auto;
+        border-radius: 4px;
+        margin-top: 1rem;
+        white-space: pre-wrap;
+    }
+
+    button {
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        border: none;
+        background-color: #007acc;
+        color: white;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background-color: #005fa3;
+    }
+</style>
+</head>
+<body>
+
+<h2>OTP V1</h2>
+<label for="inputV1">KEY INPUT (ex: xyz12)
+    <input placeholder="xyz12" type="text" id="inputV1" />
+</label>
+<pre id="messageV1"></pre>
+
+<h2>OTP V2</h2>
+<label for="inputV2">KEY INPUT (ex: 01507803)
+    <input placeholder="01507803" type="text" id="inputV2" />
+</label>
+<button onclick="generateOTP_V2()">GenerateOTP</button>
+<pre id="messageV2"></pre>
+
+<script>
+// OTP V1
+const CheckOTP = (key) => {
+    let output = '';
+    for (let i = -1; i < 3; i++) {
+        output += `Minute offset: ${i}\n`;
+        const hash = MakeHashCode(key + GetDateString(i));
+        output += `Key: ${hash}\n\n`;
+    }
+    document.querySelector('#messageV1').innerText = output;
+};
+
+const GetDateString = (fudge) => {
+    const date = new Date(Date.now() - fudge * 60000);
+    const dateString =
+        String(date.getUTCFullYear() - 2000).padStart(2, '0') +
+        String(date.getUTCMonth() + 1).padStart(2, '0') +
+        String(date.getUTCMinutes()).padStart(2, '0') +
+        String(date.getUTCDate()).padStart(2, '0') +
+        String(date.getUTCHours()).padStart(2, '0');
+    return dateString;
+};
+
+const MakeHashCode = (arg) => {
+    let nHashValue = 0;
+    for (const a of arg) {
+        nHashValue = (nHashValue << 5) + nHashValue + a.charCodeAt(0);
+        nHashValue = nHashValue & 0xffffffff;
+    }
+    return Math.abs(nHashValue);
+};
+
+document.querySelector('#inputV1').addEventListener('input', (e) => {
+    CheckOTP(e.target.value);
+});
+
+// OTP V2
+const SECRET_HEX = "120395F099840593405B03838449A72933484040A3034750C0403938290A293B";
+const INTERVAL = 300;
+const CODE_DIGITS = 6;
+
+function hexToBytes(hex) {
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes.push(parseInt(hex.substr(i, 2), 16));
+    }
+    return new Uint8Array(bytes);
+}
+
+async function generateTOTP(counterHex, nonce) {
+    let inputStr = "";
+
+    if (/^\d{6}$/.test(nonce)) {
+        inputStr = (nonce + counterHex).padStart(22, '0');
+    } else {
+        alert("Nonce는 정확히 8자리 숫자여야 합니다.");
+        inputStr = counterHex.padStart(16, '0');
+    }
+
+    const msgBytes = hexToBytes(inputStr);
+    const keyBytes = hexToBytes(SECRET_HEX);
+
+    const cryptoKey = await crypto.subtle.importKey(
+        "raw",
+        keyBytes,
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgBytes);
+    const hash = new Uint8Array(signature);
+    const offset = hash[hash.length - 1] & 0x0F;
+
+    const code = (
+        ((hash[offset] & 0x7F) << 24) |
+        ((hash[offset + 1] & 0xFF) << 16) |
+        ((hash[offset + 2] & 0xFF) << 8) |
+        (hash[offset + 3] & 0xFF)
+    ) % (10 ** CODE_DIGITS);
+
+    return code.toString().padStart(CODE_DIGITS, '0');
+}
+
+async function generateOTP_V2() {
+    const inputStr = document.querySelector('#inputV2').value.trim();
+    const nonce = inputStr.length > 2 ? inputStr.slice(2) : "";
+    const currentTime = Math.floor(Date.now() / 1000);
+    const counter = Math.floor(currentTime / INTERVAL);
+    const counterHex = counter.toString(16).toUpperCase().padStart(16, '0');
+
+    const otp = await generateTOTP(counterHex, nonce);
+    document.querySelector('#messageV2').innerText = `생성된 OTP: ${otp}`;
+}
+</script>
+<a href="http://support.netimizer.com/Silent/otp.apk" style="font-size: 15px; color: #f7f9fc; text-decoration: none; position: absolute; bottom: 5px; right: 5px;">안녕하세요!</a>
+</body>
+</html>
